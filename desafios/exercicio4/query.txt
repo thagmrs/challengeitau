@@ -1,0 +1,71 @@
+SELECT
+    c.customer_id AS customer_id,
+    a.account_id AS account_id,
+    c.name AS name,
+    COALESCE(b.timestamp, ps.timestamp, pr.timestamp, pt.timestamp) AS date,
+    CASE
+        WHEN b.account_id IS NOT NULL THEN 'Boleto'
+        WHEN ps.account_id IS NOT NULL THEN 'PIX Send'
+        WHEN pr.account_id IS NOT NULL THEN 'PIX Received'
+        WHEN pt.account_id_source IS NOT NULL THEN 'P2P TEF'
+        ELSE 'Outro'
+    END AS transaction_type,
+    CASE
+        WHEN b.amount IS NOT NULL THEN b.amount
+        WHEN ps.amount IS NOT NULL THEN ps.amount
+        WHEN pr.amount IS NOT NULL THEN pr.amount
+        WHEN pt.amount IS NOT NULL THEN pt.amount
+        ELSE 0
+    END AS mean_value
+FROM
+    customer c
+JOIN
+    account a ON c.customer_id = a.customer_id
+LEFT JOIN (
+    SELECT
+        bs.account_id,
+        bs.timestam
+    FROM
+        bankslip bs
+    WHERE
+        bs.created_at = (SELECT MAX(created_at) FROM bankslip WHERE account_id = bs.account_id)
+) b ON a.account_id = b.account_id
+LEFT JOIN (
+    SELECT
+        account_id,
+        MAX(timestamp) as timestamp,
+        SUM(amount) as amount
+    FROM
+        pix_send
+    GROUP BY
+        account_id
+) ps ON a.account_id = ps.account_id
+LEFT JOIN (
+    SELECT
+        account_id,
+        MAX(timestamp) as timestamp,
+        SUM(amount) as amount
+    FROM
+        pix_received
+    GROUP BY
+        account_id
+) pr ON a.account_id = pr.account_id
+LEFT JOIN (
+    SELECT
+        account_id_source,
+        MAX(timestamp) as timestamp,
+        SUM(amount) as amount
+    FROM
+        p2p_tef
+    GROUP BY
+        account_id_source
+    UNION ALL
+    SELECT
+        account_id_destination as account_id_source,
+        MAX(timestamp) as timestamp,
+        SUM(amount) as amount
+    FROM
+        p2p_tef
+    GROUP BY
+        account_id_destination
+) pt ON a.account_id = pt.account_id_source
